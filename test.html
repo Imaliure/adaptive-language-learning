@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>English Learning App - Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 600px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .question-box {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 25px;
+        }
+        
+        .tr-sentence {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+        
+        .en-sentence {
+            font-size: 20px;
+            color: #666;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 10px;
+        }
+        
+        .masked-word {
+            cursor: pointer;
+            color: #667eea;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        
+        .masked-word:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+        
+        .info {
+            display: flex;
+            gap: 15px;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        
+        .badge {
+            background: #667eea;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 15px 50px 15px 15px;
+            font-size: 18px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .input-wrapper {
+            position: relative;
+            margin-bottom: 20px;
+        }
+        
+        .mic-button {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 5px;
+            transition: all 0.3s;
+        }
+        
+        .mic-button:hover {
+            transform: translateY(-50%) scale(1.2);
+        }
+        
+        .mic-button.recording {
+            color: #f56565;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            flex: 1;
+            padding: 15px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-submit {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-submit:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .btn-next {
+            background: #48bb78;
+            color: white;
+        }
+        
+        .btn-next:hover {
+            background: #38a169;
+            transform: translateY(-2px);
+        }
+        
+        .result {
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .result.correct {
+            background: #c6f6d5;
+            border: 2px solid #48bb78;
+            color: #22543d;
+        }
+        
+        .result.incorrect {
+            background: #fed7d7;
+            border: 2px solid #f56565;
+            color: #742a2a;
+        }
+        
+        .result h3 {
+            margin-bottom: 10px;
+        }
+        
+        .similarity {
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #667eea;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎓 English Learning App</h1>
+        
+        <div id="loading" class="loading">Loading question...</div>
+        
+        <div id="question-container" style="display: none;">
+            <div class="question-box">
+                <div class="tr-sentence" id="tr-sentence"></div>
+                <div class="en-sentence" id="en-sentence"></div>
+                <div class="info">
+                    <span class="badge" id="level"></span>
+                    <span class="badge" id="topic"></span>
+                </div>
+            </div>
+            
+            <div class="input-wrapper">
+                <input type="text" id="answer-input" placeholder="Type your answer here...">
+                <button class="mic-button" id="mic-button" onclick="toggleVoiceInput()">🎤</button>
+            </div>
+            
+            <div class="button-group">
+                <button class="btn-submit" onclick="checkAnswer()">Check Answer</button>
+                <button class="btn-next" onclick="loadRandomQuestion()">Next Question</button>
+            </div>
+            <div id="result" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        let currentQuestion = null;
+        let recognition = null;
+        let isRecording = false;
+
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.lang = 'en-US';
+            recognition.continuous = false;
+            recognition.interimResults = false;
+
+            recognition.onresult = function(event) {
+                const transcript = event.results[0][0].transcript;
+                document.getElementById('answer-input').value = transcript;
+            };
+
+            recognition.onend = function() {
+                isRecording = false;
+                document.getElementById('mic-button').classList.remove('recording');
+            };
+        }
+
+        function toggleVoiceInput() {
+            if (!recognition) {
+                alert('Voice recognition is not supported in your browser.');
+                return;
+            }
+
+            if (isRecording) {
+                recognition.stop();
+                isRecording = false;
+                document.getElementById('mic-button').classList.remove('recording');
+            } else {
+                recognition.start();
+                isRecording = true;
+                document.getElementById('mic-button').classList.add('recording');
+            }
+        }
+
+        async function loadRandomQuestion() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('question-container').style.display = 'none';
+            document.getElementById('result').style.display = 'none';
+            document.getElementById('answer-input').value = '';
+            
+            try {
+                const response = await fetch(`${API_URL}/random-question`);
+                currentQuestion = await response.json();
+                
+                document.getElementById('tr-sentence').textContent = currentQuestion.tr;
+                
+                let maskedHtml = 'EN: ';
+                let sentenceParts = currentQuestion.masked_en.split(' ');
+                let hintIndex = 0;
+                sentenceParts.forEach((part, index) => {
+                    if (part.includes('_')) {
+                        if (hintIndex < currentQuestion.hints.length) {
+                            const hint = currentQuestion.hints[hintIndex];
+                            maskedHtml += `<span class="masked-word" onclick="revealWord(this, '${hint.word}')">${part}</span> `;
+                            hintIndex++;
+                        } else {
+                            maskedHtml += part + ' ';
+                        }
+                    } else {
+                        maskedHtml += part + ' ';
+                    }
+                });
+                
+                document.getElementById('en-sentence').innerHTML = maskedHtml.trim();
+                document.getElementById('level').textContent = currentQuestion.level;
+                document.getElementById('topic').textContent = currentQuestion.topic;
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('question-container').style.display = 'block';
+            } catch (error) {
+                document.getElementById('loading').textContent = 'Error loading question. Make sure the API is running!';
+            }
+        }
+
+        function revealWord(element, word) {
+            element.textContent = word;
+            element.style.color = '#48bb78';
+            element.style.cursor = 'default';
+            element.onclick = null;
+        }
+
+        async function checkAnswer() {
+            const userAnswer = document.getElementById('answer-input').value.trim();
+            
+            if (!userAnswer) {
+                alert('Please enter an answer!');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/check-answer`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        question_id: currentQuestion.id,
+                        user_answer: userAnswer
+                    })
+                });
+                
+                const result = await response.json();
+                const resultDiv = document.getElementById('result');
+                
+                if (result.is_correct) {
+                    resultDiv.className = 'result correct';
+                    resultDiv.innerHTML = `
+                        <h3>✅ Correct!</h3>
+                        <p>Great job! Your answer is perfect.</p>
+                        <div class="similarity">Similarity: ${(result.similarity * 100).toFixed(0)}%</div>
+                    `;
+                } else {
+                    resultDiv.className = 'result incorrect';
+                    resultDiv.innerHTML = `
+                        <h3>❌ Incorrect</h3>
+                        <p><strong>Your answer:</strong> ${result.user_answer}</p>
+                        <p><strong>Correct answer:</strong> ${result.correct_answer}</p>
+                        <p><strong>Feedback:</strong> ${result.feedback}</p>
+                        <div class="similarity">Similarity: ${(result.similarity * 100).toFixed(0)}%</div>
+                    `;
+                }
+                
+                resultDiv.style.display = 'block';
+            } catch (error) {
+                alert('Error checking answer. Make sure the API is running!');
+            }
+        }
+
+        document.getElementById('answer-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                checkAnswer();
+            }
+        });
+
+        loadRandomQuestion();
+    </script>
+</body>
+</html>
