@@ -3,8 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
 import re
-from difflib import SequenceMatcher
-import Levenshtein
+# Optional: python-Levenshtein is faster and preferable for distance checks, but make it optional
+try:
+    import Levenshtein
+    HAVE_LEV = True
+except Exception:
+    Levenshtein = None
+    HAVE_LEV = False
 import whisper
 import os
 import tempfile
@@ -58,7 +63,19 @@ def mask_sentence(sentence, keywords):
     return masked, hints
 
 def normalize_text(text):
-    # Number word mappings for better accuracy
+    """Normalize text for comparison.
+
+    - Convert time formats like "9:00" -> "9 oclock"
+    - Replace numeric tokens with words (0-20)
+    - Remove apostrophes (o'clock -> oclock)
+    - Strip any non-alphanumeric characters except spaces
+    """
+    text = text.lower().strip()
+
+    # 1. Convert times like 9:00 -> 9 oclock
+    text = re.sub(r'(\d+):00', r'\1 oclock', text)
+
+    # 2. Number to word mapping (covers common small numbers)
     number_map = {
         '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four', 
         '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine',
@@ -66,95 +83,94 @@ def normalize_text(text):
         '14': 'fourteen', '15': 'fifteen', '16': 'sixteen', '17': 'seventeen',
         '18': 'eighteen', '19': 'nineteen', '20': 'twenty'
     }
-    
-    text = text.lower().strip()
-    
-    # Replace numbers with words
     for num, word in number_map.items():
         text = re.sub(r'\b' + num + r'\b', word, text)
-    
+
+    # 3. Remove apostrophes (o'clock -> oclock)
+    text = text.replace("'", "")
+
+    # 4. Keep only letters, numbers and spaces
     text = re.sub(r'[^a-z0-9\s]', '', text)
     text = re.sub(r'\s+', ' ', text)
+
     return text.strip()
 
 def calculate_similarity(correct, user_input):
-    # Normalize both for comparison
-    correct_normalized = re.sub(r'[^a-z0-9\s]', '', correct.lower()).strip()
-    user_normalized = re.sub(r'[^a-z0-9\s]', '', user_input.lower()).strip()
-    
-    # Perfect match after removing punctuation
+    # Use normalize_text so times and apostrophes are handled consistently
+    correct_normalized = normalize_text(correct)
+    user_normalized = normalize_text(user_input)
+
+    # Perfect match after normalization
     if correct_normalized == user_normalized:
         return 1.0, "Perfect!"
-    
+
     # Check for spacing issues (concatenation errors)
     correct_no_spaces = re.sub(r'\s+', '', correct_normalized)
     user_no_spaces = re.sub(r'\s+', '', user_normalized)
-    
     if correct_no_spaces == user_no_spaces:
         return 0.92, "Spacing error - check for missing spaces between words"
-    
-    # Split into words, ignoring punctuation
+
+    # Split into words
     correct_words = correct_normalized.split()
     user_words = user_normalized.split()
-    
+
     # Function words (articles, auxiliaries)
     function_words = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'have', 'has', 'had', 'do', 'does', 'did'}
-    
-    missing_words = []
-    typos = []
-    extra_words = []
-    
-    # Find missing and extra words
+
+    # Determine missing and extra words
     correct_set = set(correct_words)
     user_set = set(user_words)
-    
-    missing = correct_set - user_set
-    extra = user_set - correct_set
-    
-    # Check for typos in missing/extra words
+    missing = set(correct_set - user_set)
+    extra = set(user_set - correct_set)
+
+    # Detect probable typos by Levenshtein distance and remove matched pairs
+    typos = []
     for missing_word in list(missing):
         for extra_word in list(extra):
-            if Levenshtein.distance(missing_word, extra_word) <= 2:
-                typos.append(f"{extra_word} → {missing_word}")
-                missing.remove(missing_word)
-                extra.remove(extra_word)
-                break
-    
+            try:
+                if Levenshtein.distance(missing_word, extra_word) <= 2:
+                    typos.append(f"{extra_word} → {missing_word}")
+                    missing.discard(missing_word)
+                    extra.discard(extra_word)
+                    break
+            except Exception:
+                # If Levenshtein not available, skip typo detection
+                pass
+
     missing_words = list(missing)
     extra_words = list(extra)
-    
-    # Calculate base similarity
+
+    # Calculate base similarity based on overlap
     intersection = len(correct_set.intersection(user_set))
     base_score = intersection / len(correct_set) if correct_set else 0
-    
-    # Apply penalties
+
     score = base_score
     feedback_parts = []
-    
-    # Typo penalty (minor)
+
+    # Typo feedback (minor penalty)
     if typos:
         score *= 0.95
-        feedback_parts.append(f"Typos: {', '.join(typos)}")
-    
-    # Missing function words penalty
+        feedback_parts.append(f"✍️ Typos: {', '.join(typos)}")
+
+    # Missing function words (articles/aux) - small penalty
     missing_function = [w for w in missing_words if w in function_words]
     if missing_function:
         score *= 0.85
         feedback_parts.append(f"Missing articles/auxiliaries: {', '.join(missing_function)}")
-    
-    # Missing content words penalty (severe)
+
+    # Missing content words - severe penalty
     missing_content = [w for w in missing_words if w not in function_words]
     if missing_content:
         score *= 0.5
         feedback_parts.append(f"Missing key words: {', '.join(missing_content)}")
-    
+
     # Extra words penalty
     if extra_words:
         score *= 0.9
         feedback_parts.append(f"Extra words: {', '.join(extra_words)}")
-    
+
     feedback = "; ".join(feedback_parts) if feedback_parts else "Good attempt"
-    
+
     return min(score, 1.0), feedback
 
 @app.get("/")
